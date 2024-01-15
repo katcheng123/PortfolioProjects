@@ -1,0 +1,185 @@
+--Cleaning Data 
+
+SELECT *
+FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+
+-- Standardize the Sale date by Removing the time format
+SELECT SaleDateConverted,
+CONVERT (Date,SaleDate)
+FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+
+ALTER TABLE [AA Portfolio Project].[dbo].[Nashville Housing]
+Add SaleDateConverted Date; 
+UPDATE [Nashville Housing]
+SET SaleDateConverted = CONVERT (Date,SaleDate)
+--created a new column with just the date called SaleDateConverted 
+
+
+--Populate Property Address data and find nulls 
+SELECT *
+FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+WHERE PropertyAddress is NULL
+
+SELECT *
+FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+--WHERE PropertyAddress is NULL
+ORDER BY ParcelID
+--found that there are multiple entries with the same Parcel ID and have an address
+
+--want SQL to find the entries with the same ID and fill in null addresses 
+-- join the same table together where ID is the same but not the same row
+SELECT a.ParcelID, a.PropertyAddress, b.ParcelID, b.PropertyAddress
+FROM [AA Portfolio Project].[dbo].[Nashville Housing] a
+JOIN [AA Portfolio Project].[dbo].[Nashville Housing] b
+	on a.ParcelID = b.ParcelID
+	AND a.[UniqueID ]<>b.[UniqueID ]
+WHERE a.PropertyAddress is null
+-- result: table with matching parcel IDs and an address
+-- but we need to populate it in the null areas
+
+SELECT a.ParcelID, a.PropertyAddress, b.ParcelID, b.PropertyAddress, 
+ISNULL(a.PropertyAddress, b.PropertyAddress)
+FROM [AA Portfolio Project].[dbo].[Nashville Housing] a
+JOIN [AA Portfolio Project].[dbo].[Nashville Housing] b
+	on a.ParcelID = b.ParcelID
+	AND a.[UniqueID ]<>b.[UniqueID ]
+WHERE a.PropertyAddress is null
+
+UPDATE a --alias for the joined data set
+SET PropertyAddress = ISNULL(a.PropertyAddress, b.PropertyAddress)
+FROM [AA Portfolio Project].[dbo].[Nashville Housing] a
+JOIN [AA Portfolio Project].[dbo].[Nashville Housing] b
+	on a.ParcelID = b.ParcelID
+	AND a.[UniqueID ]<>b.[UniqueID ]
+WHERE a.PropertyAddress is null
+--can run this code and then the one above it to show no rows (bc there are no more nulls)
+
+
+--Break the property address into different columns (Address, City, State)
+SELECT 
+SUBSTRING(PropertyAddress, 1, CHARINDEX(',',PropertyAddress)) as Address,
+CHARINDEX(',', PropertyAddress)--used to see the position of the ','
+-- starting at the 1st value, start a new column with the data before the ','
+FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+
+SELECT 
+SUBSTRING(PropertyAddress, 1, CHARINDEX(',',PropertyAddress)-1) as Address
+-- added a (-1) to get rid of the comma
+FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+
+SELECT 
+SUBSTRING(PropertyAddress, 1, CHARINDEX(',',PropertyAddress)-1) as Address
+, SUBSTRING(PropertyAddress, CHARINDEX(',',PropertyAddress)+1, LEN(PropertyAddress)) as Address
+FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+--result: adress seperated from city
+
+-- need to add two more columns to add the seperated address in + update the table
+ALTER TABLE [AA Portfolio Project].[dbo].[Nashville Housing]
+Add PropertySplitAddress Nvarchar(255); 
+UPDATE [Nashville Housing]
+SET PropertySplitAddress = SUBSTRING(PropertyAddress, 1, CHARINDEX(',',PropertyAddress)-1)
+
+ALTER TABLE [AA Portfolio Project].[dbo].[Nashville Housing]
+Add PropertySplitCity Nvarchar(225); 
+UPDATE [Nashville Housing]
+SET PropertySplitCity = SUBSTRING(PropertyAddress, CHARINDEX(',',PropertyAddress)+1, LEN(PropertyAddress)) 
+
+
+-- Split the owner address with parsname
+SELECT 
+PARSENAME(REPLACE(OwnerAddress,',', '.'), 3)
+,PARSENAME(REPLACE(OwnerAddress,',', '.'), 2)
+,PARSENAME(REPLACE(OwnerAddress,',', '.'), 1)
+FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+
+-- update table 1) add column first 2)input the new split address data 
+ALTER TABLE [AA Portfolio Project].[dbo].[Nashville Housing]
+Add OwnerSplitAddress Nvarchar(255);
+
+UPDATE [AA Portfolio Project].[dbo].[Nashville Housing]
+SET OwnerSplitAddress = PARSENAME(REPLACE(OwnerAddress,',', '.'), 3)
+
+-- adding column for the city
+ALTER TABLE [AA Portfolio Project].[dbo].[Nashville Housing]
+Add OwnerSplitCity Nvarchar(255);
+
+UPDATE [AA Portfolio Project].[dbo].[Nashville Housing]
+SET OwnerSplitCity = PARSENAME(REPLACE(OwnerAddress,',', '.'), 2)
+
+-- adding a column for the state
+ALTER TABLE [AA Portfolio Project].[dbo].[Nashville Housing]
+Add OwnerSplitState Nvarchar(255);
+
+UPDATE [AA Portfolio Project].[dbo].[Nashville Housing]
+SET OwnerSplitState = PARSENAME(REPLACE(OwnerAddress,',', '.'), 1)
+
+-- change Y and N to 'Yes' and 'No' in 'Sold as Vacant' Field
+SELECT DISTINCT(SoldAsVacant),COUNT(SoldAsVacant)
+FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+GROUP BY SoldAsVacant
+ORDER BY 2
+-- shows how many answers there are 
+
+SELECT SoldAsVacant
+, CASE When SoldAsVacant = 'Y' THEN 'Yes'
+       When SoldAsVacant = 'N' THEN 'No'
+	   ELSE SoldAsVacant --everything other than Y or N
+	   END 
+FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+
+UPDATE [AA Portfolio Project].[dbo].[Nashville Housing]
+SET SoldAsVacant = CASE When SoldAsVacant = 'Y' THEN 'Yes' --copy paste
+                        When SoldAsVacant = 'N' THEN 'No'
+	                    ELSE SoldAsVacant 
+	                    END 
+
+
+-- Remove duplicates 
+-- (note: not good to delete data; use a temp file instead to store unwanted data)
+WITH RowNumCTE AS (
+	SELECT *,
+		ROW_NUMBER() OVER(
+		PARTITION BY ParcelID,
+					 SalePrice,
+					 SaleDate,
+					 LegalReference
+					 ORDER BY 
+						UniqueID
+						) row_num
+	FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+	-- ORDER BY ParcelID
+	-- will show a 1 for unique rows and 2 for a duplicate of the row above it
+)
+SELECT *
+FROM RowNumCTE
+WHERE row_num > 1
+ORDER BY PropertyAddress
+
+WITH RowNumCTE AS (
+	SELECT *,
+		ROW_NUMBER() OVER(
+		PARTITION BY ParcelID,
+					 SalePrice,
+					 SaleDate,
+					 LegalReference
+					 ORDER BY 
+						UniqueID
+						) row_num
+	FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+	-- ORDER BY ParcelID
+	-- will show a 1 for unique rows and 2 for a duplicate of the row above it
+)
+DELETE
+FROM RowNumCTE
+WHERE row_num > 1
+
+
+-- Delete Unused Columns
+SELECT *
+FROM [AA Portfolio Project].[dbo].[Nashville Housing]
+
+ALTER TABLE [AA Portfolio Project].[dbo].[Nashville Housing]
+	DROP COLUMN OwnerAddress, TaxDistrict, PropertyAddress
+
+ALTER TABLE [AA Portfolio Project].[dbo].[Nashville Housing]
+	DROP COLUMN SaleDate
