@@ -1,0 +1,485 @@
+/* 
+Google Data Analytics Capstone Project
+
+Part 1: Cleaning Process
+- Combining all the data
+- Cleaning: look for duplicate data, null data, inconsistent data
+
+*/
+
+-- 1.) Alter Q2 column names so that they match the other tables 
+
+-- 2.) Aggregate all the tables with UNION ALL and create table BikeData2019
+CREATE TABLE BikeData2019
+		(trip_id int, 
+		start_time datetime2(7),
+		end_time datetime2(7),
+		bikeid smallint,
+		tripduration float,
+		from_station_id smallint,
+		from_station_name nvarchar(50),
+		to_station_id smallint,
+		to_station_name nvarchar(50),
+		usertype nvarchar(50),
+		gender nvarchar(50),
+		birthyear smallint)
+
+INSERT INTO BikeData2019
+SELECT *
+	FROM [Bike Share Data].[dbo].[Divvy_Trips_2019_Q1]
+UNION ALL
+SELECT *
+	FROM [Bike Share Data].[dbo].[Divvy_Trips_2019_Q2]
+UNION ALL 
+SELECT *
+	FROM [Bike Share Data].[dbo].[Divvy_Trips_2019_Q3]
+UNION ALL
+SELECT *
+	FROM [Bike Share Data].[dbo].[Divvy_Trips_2019_Q4]
+
+SELECT *
+FROM BikeData2019
+ORDER BY tripduration 
+
+-- 3.) Look at the Null values and if it is a significant portion of the data 
+-- Gender and Birthyear 
+SELECT *
+FROM BikeData2019
+WHERE gender IS NULL 
+	OR birthyear IS NULL
+
+-- Input "unknown" to replace the nulls in gender 
+UPDATE BikeData2019
+SET gender = 'unknown'
+WHERE gender IS NULL
+
+-- 4.) Checking if there is Duplicate Data 
+SELECT COUNT(DISTINCT trip_id)
+FROM BikeData2019
+
+SELECT COUNT(trip_id)
+FROM BikeData2019
+
+-- 5.) Consistent street names (looking for mispellings, extra notations, etc)
+SELECT from_station_id, from_station_name
+FROM BikeData2019
+GROUP BY from_station_id, from_station_name
+ORDER BY from_station_id
+
+UPDATE BikeData2019
+SET from_station_name = REPLACE(from_station_name, '(*)', '')
+
+UPDATE BikeData2019
+SET from_station_name = REPLACE(from_station_name, '(Temp)', '')
+
+UPDATE BikeData2019
+SET from_station_name = REPLACE(from_station_name, 'Throop (Loomis) St & Taylor St', 'Loomis St & Taylor St ')
+
+UPDATE BikeData2019
+SET from_station_name = REPLACE(from_station_name, 'Racine Ave (May St) & Fulton St', 'May St & Fulton St')
+
+UPDATE BikeData2019
+SET from_station_name = REPLACE(from_station_name, 'Elizabeth (May) St & Fulton St', 'May St & Fulton St')
+
+UPDATE BikeData2019
+SET from_station_name = REPLACE(from_station_name, 'Franklin St & Adams St ', 'Franklin St & Quincy St')
+
+-- Clean the to_station_names the same way
+SELECT to_station_id, to_station_name
+FROM BikeData2019
+GROUP BY to_station_id, to_station_name
+ORDER BY to_station_id
+
+UPDATE BikeData2019
+SET to_station_name = REPLACE(to_station_name, '(*)', '')
+
+UPDATE BikeData2019
+SET to_station_name = REPLACE(to_station_name, '(Temp)', '')
+
+UPDATE BikeData2019
+SET to_station_name = REPLACE(to_station_name, 'Throop (Loomis) St & Taylor St', 'Loomis St & Taylor St ')
+
+UPDATE BikeData2019
+SET to_station_name = REPLACE(to_station_name, 'Racine Ave (May St) & Fulton St', 'May St & Fulton St')
+
+UPDATE BikeData2019
+SET to_station_name = REPLACE(to_station_name, 'Elizabeth (May) St & Fulton St', 'May St & Fulton St')
+
+UPDATE BikeData2019
+SET to_station_name = REPLACE(to_station_name, 'Franklin St & Adams St ', 'Franklin St & Quincy St')
+
+
+-- 6.) Looking for age outliters 
+SELECT TOP 50 *, 
+	(2019-birthyear) AS age
+FROM BikeData2019
+WHERE birthyear IS NOT NULL
+ORDER BY birthyear
+
+/* 
+
+Part 2: Data Transformation 
+
+- manipulating the data for readability 
+- add it to a temp table to run further queries on
+
+*/
+
+-- 1.) Time + Date (CONVERT + DATENAME + DATEDIFF)
+-- 2.) Customer's Age
+DROP TABLE IF EXISTS #BikeData2019Cleaned 
+CREATE TABLE #BikeData2019Cleaned 
+	(
+	trip_id int,
+	trip_month nvarchar(50),
+	start_date date,
+	start_time time(0),
+	start_dow nvarchar(50),
+	end_date date,
+	end_time time(0),
+	end_dow nvarchar(50),
+	trip_length int,
+	bikeid smallint,
+	from_station_name nvarchar(50),
+	to_station_name nvarchar(50),
+	usertype nvarchar(50),
+	gender nvarchar(50),
+	age int)
+INSERT INTO #BikeData2019Cleaned
+SELECT trip_id, 
+		DATENAME(month,start_time) as trip_month,
+		CONVERT(DATE, [start_time]) AS start_date,
+		CONVERT(TIME(0), [start_time]) AS start_time,
+		DATENAME(dw, start_time) AS start_dow,
+		CONVERT(DATE, [end_time]) AS end_date,
+		CONVERT(TIME(0), [end_time]) AS end_time,
+		DATENAME(dw, end_time) AS end_dow,
+		tripduration/60 as trip_length,
+		bikeid,
+		from_station_name,
+		to_station_name,
+		usertype,
+		gender,
+			(CASE WHEN (2019 - birthyear)<= 100 
+			AND (2019 - birthyear) >= 12
+			THEN (2019 - birthyear)
+			ELSE NULL END) AS age
+FROM BikeData2019
+
+SELECT TOP 100 *
+FROM #BikeData2019Cleaned
+WHERE age is not null
+ORDER BY age DESC
+
+
+
+/* 
+
+Part 3: Analysis 
+
+*/
+
+-- 1.) Avg ride length (min)
+SELECT AVG(trip_length) as AvgTrip
+FROM #BikeData2019Cleaned
+
+SELECT AVG(trip_length) as SubTripMin
+FROM #BikeData2019Cleaned
+WHERE usertype = 'Subscriber'
+
+SELECT AVG(trip_length) as CasTripMin
+FROM #BikeData2019Cleaned
+WHERE usertype = 'Customer'
+
+-- 2.) Median Ride Length (min)
+-- everyone
+SELECT(
+	(SELECT MAX(trip_length)
+	FROM(
+		SELECT TOP 50 PERCENT trip_length
+		FROM #BikeData2019Cleaned
+		ORDER BY trip_length
+		) 
+	AS tophalf)
+	+ 
+	(SELECT MIN(trip_length)
+	FROM(
+		SELECT TOP 50 PERCENT trip_length
+		FROM #BikeData2019Cleaned
+		ORDER BY trip_length DESC
+		) 
+	AS bottom)
+	)/2 AS median
+
+-- subscriber 
+SELECT(
+	(SELECT MAX(trip_length)
+	FROM(
+		SELECT TOP 50 PERCENT trip_length
+		FROM #BikeData2019Cleaned
+		WHERE usertype = 'Subscriber'
+		ORDER BY trip_length
+		) 
+	AS tophalf)
+	+ 
+	(SELECT MIN(trip_length)
+	FROM(
+		SELECT TOP 50 PERCENT trip_length
+		FROM #BikeData2019Cleaned
+		WHERE usertype = 'Subscriber'
+		ORDER BY trip_length DESC
+		) 
+	AS bottom)
+	)/2 AS median
+
+-- customer
+SELECT(
+	(SELECT MAX(trip_length)
+	FROM(
+		SELECT TOP 50 PERCENT trip_length
+		FROM #BikeData2019Cleaned
+		WHERE usertype = 'Customer'
+		ORDER BY trip_length
+		) 
+	AS tophalf)
+	+ 
+	(SELECT MIN(trip_length)
+	FROM(
+		SELECT TOP 50 PERCENT trip_length
+		FROM #BikeData2019Cleaned
+		WHERE usertype = 'Customer'
+		ORDER BY trip_length DESC
+		) 
+	AS bottom)
+	)/2 AS median
+
+-- 2.) Box Whisker plot Ride Length (min)
+WITH raw_data AS (
+	SELECT 
+		usertype,
+		trip_length,
+		ROW_NUMBER() OVER (PARTITION BY usertype ORDER BY trip_length) as row_number,
+		SUM(1) OVER (PARTITION BY usertype) as total
+	FROM BikeData2019Cleaned
+	),
+
+-- b.) medians of each quartiles
+quartiles AS(
+	SELECT 
+		usertype,
+		trip_length,
+		AVG(
+			CASE WHEN row_number >= (FLOOR(total/2)/2)
+				AND row_number <= (FLOOR(total/2)/2) + 1
+				THEN trip_length/1 
+				ELSE NULL
+				END
+			) OVER(PARTITION BY usertype) AS q1,
+		AVG(
+			CASE WHEN row_number >= (total/2)
+				AND row_number <= (total/2) + 1
+				THEN trip_length/1
+				ELSE NULL
+				END
+			) OVER(PARTITION BY usertype) AS median,
+		AVG(
+			CASE WHEN row_number >= (CEILING(total/2) + (FLOOR(TOTAL/2)/2))
+				AND row_number <= (CEILING(total/2) + (FLOOR(TOTAL/2)/2) + 1)
+				THEN trip_length/1 
+				ELSE NULL
+				END
+			 )OVER(PARTITION BY usertype) as q3
+	FROM raw_data
+	)
+
+SELECT usertype,
+      MIN(
+		CASE WHEN trip_length>= q1 - ((q3-q1)*1.5) 
+		THEN trip_length
+		ELSE NULL
+		END
+		) AS minimum,
+      AVG(q1) AS q1,
+      AVG(median) AS median,
+      AVG(q3) AS q3,
+      MAX(
+		CASE WHEN trip_length<= q3 + ((q3-q1) * 1.5)
+		THEN trip_length
+		ELSE NULL 
+		END
+		) AS maximum,
+		(AVG(q3) - AVG(q1)) AS IQR
+FROM quartiles
+ GROUP BY usertype
+
+-- 3.) Mode day of the week 
+SELECT start_dow, COUNT(*) AS mode_dow
+FROM #BikeData2019Cleaned
+WHERE usertype = 'Subscriber'
+GROUP BY start_dow
+ORDER BY mode_dow DESC
+
+SELECT start_dow, COUNT(*) AS mode_dow
+FROM #BikeData2019Cleaned
+WHERE usertype = 'Customer'
+GROUP BY start_dow
+ORDER BY mode_dow DESC
+
+-- 4.) Trips per Month
+SELECT trip_month, COUNT(*) AS tripspermonth
+FROM #BikeData2019Cleaned
+WHERE usertype = 'Subscriber'
+GROUP BY trip_month
+ORDER BY tripspermonth DESC
+
+SELECT trip_month, COUNT(*) AS tripspermonth
+FROM #BikeData2019Cleaned
+WHERE usertype = 'Customer'
+GROUP BY trip_month
+ORDER BY tripspermonth DESC
+
+-- 5.) Avg Age 
+SELECT AVG(age) as avgage
+FROM #BikeData2019Cleaned
+
+SELECT AVG(age) as avgage
+FROM #BikeData2019Cleaned
+WHERE usertype = 'Subscriber'
+
+SELECT AVG(age) as avgage
+FROM #BikeData2019Cleaned
+WHERE usertype = 'Customer' 
+
+-- 6.) Gender 
+SELECT gender, COUNT(*) AS genderdis
+FROM #BikeData2019Cleaned
+WHERE usertype = 'Subscriber'
+GROUP BY gender
+ORDER BY genderdis DESC
+
+SELECT gender, COUNT(*) AS genderdis
+FROM #BikeData2019Cleaned
+WHERE usertype = 'Customer'
+GROUP BY gender
+ORDER BY genderdis DESC
+
+-- 7.) Age and Gender demographics 
+SELECT 
+	CASE 
+		WHEN age <= 10 THEN '0-10'
+		WHEN age BETWEEN 11 AND 20 THEN '11-20'
+		WHEN age BETWEEN 21 AND 30 THEN '21-30'
+		WHEN age BETWEEN 31 AND 40 THEN '31-40'
+		WHEN age BETWEEN 41 AND 50 THEN '41-50'
+		WHEN age BETWEEN 51 AND 64 THEN '51-64'
+		WHEN age >= 65 THEN '65 and over'
+		ELSE 'other'
+	END AS agegroup, 
+	gender,
+	COUNT(*) AS riders
+FROM #BikeData2019Cleaned
+WHERE gender != 'unknown'
+	AND usertype = 'Customer'
+GROUP BY 
+	gender,
+	CASE 
+		WHEN age <= 10 THEN '0-10'
+		WHEN age BETWEEN 11 AND 20 THEN '11-20'
+		WHEN age BETWEEN 21 AND 30 THEN '21-30'
+		WHEN age BETWEEN 31 AND 40 THEN '31-40'
+		WHEN age BETWEEN 41 AND 50 THEN '41-50'
+		WHEN age BETWEEN 51 AND 64 THEN '51-64'
+		WHEN age >= 65 THEN '65 and over'
+		ELSE 'other'
+	END 
+ORDER BY  riders DESC
+
+-- 8.) box and whisker plot 
+-- a.) number the rows 
+WITH raw_data AS (
+	SELECT 
+		usertype,
+		age,
+		ROW_NUMBER() OVER (PARTITION BY usertype ORDER BY age) as row_number,
+		SUM(1) OVER (PARTITION BY usertype) as total
+	FROM #BikeData2019Cleaned
+	WHERE age IS NOT NULL
+	),
+
+-- b.) medians of each quartiles
+quartiles AS(
+	SELECT 
+		usertype,
+		age,
+		AVG(
+			CASE WHEN row_number >= (FLOOR(total/2)/2)
+				AND row_number <= (FLOOR(total/2)/2) + 1
+				THEN age/1 
+				ELSE NULL
+				END
+			) OVER(PARTITION BY usertype) AS q1,
+		AVG(
+			CASE WHEN row_number >= (total/2)
+				AND row_number <= (total/2) + 1
+				THEN age/1
+				ELSE NULL
+				END
+			) OVER(PARTITION BY usertype) AS median,
+		AVG(
+			CASE WHEN row_number >= (CEILING(total/2) + (FLOOR(TOTAL/2)/2))
+				AND row_number <= (CEILING(total/2) + (FLOOR(TOTAL/2)/2) + 1)
+				THEN age/1 
+				ELSE NULL
+				END
+			 )OVER(PARTITION BY usertype) as q3
+	FROM raw_data
+	)
+
+SELECT usertype,
+      MIN(CASE WHEN age>= q1 - ((q3-q1)*1.5) 
+		THEN age
+		ELSE NULL
+		END) AS minimum,
+      AVG(q1) AS q1,
+      AVG(median) AS median,
+      AVG(q3) AS q3,
+      MAX(CASE WHEN age<= q3 + ((q3-q1)*1.5) 
+		THEN age
+		ELSE NULL
+		END) AS maximum
+FROM quartiles
+ GROUP BY usertype
+
+ 
+ -- 9.) Most popular start and end stations 
+ -- subscibers 
+ -- from station 
+ SELECT from_station_name,
+	COUNT(*) popular_starting_station
+ FROM BikeData2019Cleaned
+ WHERE usertype = 'Subscriber'
+ GROUP BY from_station_name
+ ORDER BY popular_starting_station DESC
+
+ -- to station
+ SELECT to_station_name,
+	COUNT(*) popular_ending_station
+ FROM BikeData2019Cleaned
+ WHERE usertype = 'Subscriber'
+ GROUP BY to_station_name
+ ORDER BY popular_ending_station DESC
+
+SELECT from_station_name,
+	COUNT(*) popular_starting_station
+ FROM BikeData2019Cleaned
+ WHERE usertype = 'Customer'
+ GROUP BY from_station_name
+ ORDER BY popular_starting_station DESC
+
+ -- to station
+ SELECT to_station_name,
+	COUNT(*) popular_ending_station
+ FROM BikeData2019Cleaned
+ WHERE usertype = 'Customer'
+ GROUP BY to_station_name
+ ORDER BY popular_ending_station DESC
